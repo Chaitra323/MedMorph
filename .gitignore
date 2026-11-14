@@ -1,0 +1,27 @@
+﻿# Node.js dependencies
+node_modules/
+
+# Python virtual environments
+.venv/
+venv/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+
+# IDE and system files
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Generated files
+*.log
+.pytest_cache/
+
+# Generated ML output
+frontend/python_backend/data/classification_results.csv

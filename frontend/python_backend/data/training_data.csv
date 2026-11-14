@@ -1,0 +1,50 @@
+
+column_name,sample_values,category
+Patient_Name,Rahul Sharma;Ananya Rao;Kiran Kumar,Direct Identifier
+Full_Name,Arjun Reddy;Priya Nair;Meera Das,Direct Identifier
+Email,rahul@example.com;ananya@example.com,Direct Identifier
+Email_Address,patient1@gmail.com;patient2@gmail.com,Direct Identifier
+Phone_Number,9876543210;9123456780,Direct Identifier
+Mobile_Number,9988776655;8877665544,Direct Identifier
+Residential_Address,12 MG Road Bengaluru;45 Park Street,Direct Identifier
+Emergency_Contact,9876543210;9988776655,Direct Identifier
+Patient_ID,P001;P002;P003,Linking Key
+Medical_Record_Number,MR1001;MR1002;MR1003,Linking Key
+Hospital_ID,HSP01;HSP02;HSP03,Linking Key
+Record_ID,REC101;REC102;REC103,Linking Key
+Insurance_ID,INS100;INS200;INS300,Linking Key
+Admission_Number,ADM001;ADM002;ADM003,Linking Key
+Case_Number,CASE01;CASE02;CASE03,Linking Key
+Registration_ID,REG101;REG102;REG103,Linking Key
+Age,25;32;45;51,Quasi-Identifier
+Date_Of_Birth,1998-04-12;1992-07-20;1980-01-15,Quasi-Identifier
+City,Bengaluru;Mysuru;Chennai,Quasi-Identifier
+Postal_Code,560001;570001;600001,Quasi-Identifier
+Gender,Male;Female;Female,Quasi-Identifier
+Occupation,Engineer;Teacher;Doctor,Quasi-Identifier
+Admission_Date,2026-01-10;2026-02-15;2026-03-20,Quasi-Identifier
+Age_Group,20-30;30-40;40-50,Quasi-Identifier
+Diagnosis,Diabetes;Asthma;Hypertension,Sensitive Clinical Attribute
+Disease,Anemia;Cancer;Arthritis,Sensitive Clinical Attribute
+Blood_Group,O+;A+;B-,Sensitive Clinical Attribute
+Medication,Metformin;Insulin;Paracetamol,Sensitive Clinical Attribute
+Prescription,Drug A;Drug B;Drug C,Sensitive Clinical Attribute
+Medical_History,Diabetes history;Asthma history,Sensitive Clinical Attribute
+Allergy,Pollen;Penicillin;Dust,Sensitive Clinical Attribute
+Treatment_Details,Chemotherapy;Physiotherapy;Surgery,Sensitive Clinical Attribute
+Appointment_Type,General;Follow-up;Routine,Non-sensitive Attribute
+Department,Cardiology;Neurology;Orthopedics,Non-sensitive Attribute
+Room_Number,101;202;305,Non-sensitive Attribute
+Visit_Type,Walk-in;Scheduled;Routine,Non-sensitive Attribute
+Payment_Mode,Cash;Card;Online,Non-sensitive Attribute
+Insurance_Provider,Provider A;Provider B;Provider C,Non-sensitive Attribute
+Consultation_Duration,15;30;45,Non-sensitive Attribute
+Bed_Type,General;Private;Semi-private,Non-sensitive Attribute
+Unknown_Field,ABC;XYZ;123,Needs Review
+Custom_Attribute,Value1;Value2;Value3,Needs Review
+Extra_Information,Sample A;Sample B;Sample C,Needs Review
+Other_Details,Text A;Text B;Text C,Needs Review
+Miscellaneous,Item1;Item2;Item3,Needs Review
+Additional_Field,Data A;Data B;Data C,Needs Review
+Unspecified_Value,One;Two;Three,Needs Review
+Special_Notes,Note A;Note B;Note C,Needs Review

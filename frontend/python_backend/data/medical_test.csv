@@ -1,0 +1,6 @@
+Patient_ID,Patient_Name,Age,Email,Diagnosis,Blood_Group,City
+P001,Rahul Sharma,25,rahul@example.com,Diabetes,O+,Bengaluru
+P002,Ananya Rao,32,ananya@example.com,Hypertension,A+,Mysuru
+P003,Kiran Kumar,45,kiran@example.com,Asthma,B+,Bengaluru
+P004,Priya Nair,29,priya@example.com,Anemia,O-,Chennai
+P005,Arjun Reddy,51,arjun@example.com,Diabetes,AB+,Hyderabad

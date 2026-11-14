@@ -1,335 +1,594 @@
 
-import React, { useState } from "react";
-import Papa from "papaparse";
-import * as XLSX from "xlsx";
+import React, { useEffect, useMemo, useState } from "react";
 import {
-  Upload,
+  ShieldCheck,
+  ShieldAlert,
   Search,
   Database,
-  ShieldCheck,
   AlertTriangle,
   FileSpreadsheet,
+  CheckCircle,
+  RefreshCw,
+  Info,
+  Eye,
 } from "lucide-react";
+import "./index.css";
 
-const categories = [
-  "Direct Identifier",
-  "Quasi Identifier",
-  "Sensitive Attribute",
-  "Non-Sensitive Attribute",
-];
+const API_URL = "http://127.0.0.1:8000/classify";
 
-function identifyColumn(columnName, values) {
-  const name = columnName.toLowerCase().replace(/[_-]/g, " ");
-  const samples = values
-    .filter((value) => value !== null && value !== undefined && value !== "")
-    .slice(0, 30)
-    .map(String);
+const CATEGORIES = {
+  SENSITIVE: "Sensitive",
+  NON_SENSITIVE: "Non-sensitive",
+  REVIEW: "Needs Review",
+};
 
-  // Identify direct identifiers
+// Internal category mapping.
+// Kept for compatibility with the existing Data Morphing page.
+const mapCategory = (category) => {
+  const value = String(category || "").toLowerCase().trim();
+
   if (
-    /\b(patient id|patientid|record id|id|name|full name|first name|last name|email|phone|mobile|telephone|address|passport|ssn|aadhaar)\b/i.test(name)
+    value === "non-sensitive attribute" ||
+    value === "non-sensitive"
   ) {
-    return {
-      category: "Direct Identifier",
-      dataType: "Identifier",
-    };
+    return CATEGORIES.NON_SENSITIVE;
   }
 
-  // Identify sensitive medical attributes
+  if (value === "needs review") {
+    return CATEGORIES.REVIEW;
+  }
+
   if (
-    /\b(diagnosis|disease|medical condition|health condition|medication|medicine|drug|treatment|symptom|medical history|blood group|genetic|disability|mental health|lab result|test result|hiv)\b/i.test(name)
+    [
+      "direct identifier",
+      "linking key",
+      "quasi-identifier",
+      "sensitive clinical attribute",
+    ].includes(value)
   ) {
-    return {
-      category: "Sensitive Attribute",
-      dataType: "Medical / Sensitive",
-    };
+    return CATEGORIES.SENSITIVE;
   }
 
-  // Identify quasi-identifiers
+  return CATEGORIES.REVIEW;
+};
+
+// Assign an appropriate privacy action to each ML category.
+const getPrivacyAction = (category) => {
+  const value = String(category || "").toLowerCase().trim();
+
+  switch (value) {
+    case "direct identifier":
+      return "Mask";
+
+    case "linking key":
+      return "Tokenize";
+
+    case "quasi-identifier":
+      return "Generalize";
+
+    case "sensitive clinical attribute":
+      return "Protect / Transform";
+
+    case "non-sensitive attribute":
+    case "non-sensitive":
+      return "Retain";
+
+    case "needs review":
+      return "Manual Review";
+
+    default:
+      return "Manual Review";
+  }
+};
+
+// Determine badge styling for privacy actions.
+const getActionClass = (action) => {
+  switch (action) {
+    case "Mask":
+      return "high";
+
+    case "Tokenize":
+      return "medium";
+
+    case "Generalize":
+      return "medium";
+
+    case "Protect / Transform":
+      return "high";
+
+    case "Retain":
+      return "low";
+
+    default:
+      return "medium";
+  }
+};
+
+const detectDataType = (values) => {
+  const validValues = values
+    .filter(
+      (value) =>
+        value !== null &&
+        value !== undefined &&
+        String(value).trim() !== ""
+    )
+    .map((value) => String(value).trim());
+
+  if (!validValues.length) return "Empty";
+
+  if (validValues.every((value) => !isNaN(Number(value)))) {
+    return "Numeric";
+  }
+
   if (
-    /\b(age|date of birth|dob|birth date|gender|sex|zip|postal code|pincode|city|district|state|occupation|marital status)\b/i.test(name)
+    validValues.every((value) =>
+      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
+    )
   ) {
-    return {
-      category: "Quasi Identifier",
-      dataType: "Demographic",
-    };
+    return "Email";
   }
 
-  // Identify based on values if column name is unclear
-  const joined = samples.join(" ");
-
-  if (samples.length > 0) {
-    const looksLikeEmail = samples.some((v) =>
-      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)
-    );
-
-    const looksLikePhone = samples.some((v) =>
-      /^\+?[\d\s()-]{10,}$/.test(v)
-    );
-
-    const looksLikeDate = samples.some((v) =>
-      /^\d{4}-\d{1,2}-\d{1,2}$/.test(v) ||
-      /^\d{1,2}[/-]\d{1,2}[/-]\d{2,4}$/.test(v)
-    );
-
-    if (looksLikeEmail || looksLikePhone) {
-      return {
-        category: "Direct Identifier",
-        dataType: looksLikeEmail ? "Email" : "Phone Number",
-      };
-    }
-
-    if (looksLikeDate) {
-      return {
-        category: "Quasi Identifier",
-        dataType: "Date",
-      };
-    }
-
-    if (samples.every((v) => !isNaN(Number(v)))) {
-      return {
-        category: "Non-Sensitive Attribute",
-        dataType: "Numeric",
-      };
-    }
+  if (
+    validValues.every((value) =>
+      /^\+?[\d\s()-]{8,18}$/.test(value)
+    )
+  ) {
+    return "Phone";
   }
 
-  return {
-    category: "Non-Sensitive Attribute",
-    dataType: "Text",
-  };
-}
+  return "Text";
+};
 
-function classifyDataset(headers, rows) {
-  return headers.map((header) => {
-    const values = rows.map((row) => row[header]);
-    const identification = identifyColumn(header, values);
-
-    return {
-      column: header,
-      dataType: identification.dataType,
-      category: identification.category,
-      sample: values.find(
-        (value) => value !== null && value !== undefined && value !== ""
-      ) ?? "—",
-    };
-  });
-}
-
-export default function Classification() {
-  const [fileName, setFileName] = useState("");
-  const [classification, setClassification] = useState([]);
-  const [recordCount, setRecordCount] = useState(0);
-  const [search, setSearch] = useState("");
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
-
-  async function handleFile(event) {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    setError("");
-    setLoading(true);
-    setFileName(file.name);
-
-    try {
-      let rows = [];
-
-      const extension = file.name.split(".").pop().toLowerCase();
-
-      if (extension === "csv") {
-        rows = await new Promise((resolve, reject) => {
-          Papa.parse(file, {
-            header: true,
-            skipEmptyLines: true,
-            complete: (result) => resolve(result.data),
-            error: reject,
-          });
-        });
-      } else if (extension === "xlsx" || extension === "xls") {
-        const buffer = await file.arrayBuffer();
-        const workbook = XLSX.read(buffer, { type: "array" });
-        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-
-        rows = XLSX.utils.sheet_to_json(firstSheet, {
-          defval: "",
-        });
-      } else {
-        throw new Error("Please upload a CSV or Excel file.");
-      }
-
-      if (!rows.length) {
-        throw new Error("The uploaded file does not contain any data.");
-      }
-
-      const headers = Object.keys(rows[0]);
-
-      if (!headers.length) {
-        throw new Error("No column headings were found.");
-      }
-
-      const results = classifyDataset(headers, rows);
-
-      setClassification(results);
-      setRecordCount(rows.length);
-    } catch (err) {
-      setError(err.message || "Unable to process this file.");
-      setClassification([]);
-      setRecordCount(0);
-    } finally {
-      setLoading(false);
-    }
+const maskValue = (value) => {
+  if (
+    value === null ||
+    value === undefined ||
+    value === ""
+  ) {
+    return "Empty";
   }
 
-  function updateCategory(column, category) {
-    setClassification((current) =>
-      current.map((item) =>
-        item.column === column ? { ...item, category } : item
-      )
-    );
-  }
+  const text = String(value);
 
-  const filtered = classification.filter((item) =>
-    item.column.toLowerCase().includes(search.toLowerCase())
-  );
-
-  const countCategory = (category) =>
-    classification.filter((item) => item.category === category).length;
+  if (text.length <= 2) return "*".repeat(text.length);
 
   return (
-    <div className="classification-page">
+    text.substring(0, 1) +
+    "*".repeat(Math.min(text.length - 1, 7))
+  );
+};
+
+export default function Classification({
+  dataset,
+  onClassificationChange,
+}) {
+  const [classification, setClassification] = useState([]);
+  const [search, setSearch] = useState("");
+  const [selectedFilter, setSelectedFilter] = useState("All");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  // Send the uploaded file to the Python ML backend.
+  useEffect(() => {
+    let cancelled = false;
+
+    const classifyFile = async () => {
+      if (!dataset?.file) {
+        setClassification([]);
+        setError("");
+        setLoading(false);
+        return;
+      }
+
+      setLoading(true);
+      setError("");
+      setClassification([]);
+
+      try {
+        const formData = new FormData();
+        formData.append("file", dataset.file);
+
+        const response = await fetch(API_URL, {
+          method: "POST",
+          body: formData,
+        });
+
+        const responseData = await response.json();
+
+        if (!response.ok) {
+          throw new Error(
+            responseData.detail || "Classification failed."
+          );
+        }
+
+        const results = responseData.results;
+
+        if (!Array.isArray(results)) {
+          throw new Error(
+            "Unexpected response received from the Python backend."
+          );
+        }
+
+        const formattedResults = results.map((item) => {
+          const columnName =
+            item.column || item.column_name || "";
+
+          const rawCategory =
+            item.category ||
+            item.predicted_category ||
+            item.prediction ||
+            "Needs Review";
+
+          const columnValues = dataset.rows.map(
+            (row) => row[columnName]
+          );
+
+          const validValues = columnValues.filter(
+            (value) =>
+              value !== null &&
+              value !== undefined &&
+              String(value).trim() !== ""
+          );
+
+          const uniqueCount = new Set(
+            validValues.map((value) => String(value).trim())
+          ).size;
+
+          const uniqueness = validValues.length
+            ? Number(
+                (
+                  (uniqueCount / validValues.length) *
+                  100
+                ).toFixed(1)
+              )
+            : 0;
+
+          const missingPercentage = columnValues.length
+            ? Number(
+                (
+                  ((columnValues.length - validValues.length) /
+                    columnValues.length) *
+                  100
+                ).toFixed(1)
+              )
+            : 0;
+
+          let confidence = Number(
+            item.confidence ?? item.probability ?? 0
+          );
+
+          if (confidence > 0 && confidence <= 1) {
+            confidence *= 100;
+          }
+
+          const internalCategory = mapCategory(rawCategory);
+
+          return {
+            column: columnName,
+
+            // Retain this for existing Data Morphing logic.
+            category: internalCategory,
+
+            // Actual ML classification.
+            subtype: rawCategory,
+            mlCategory: rawCategory,
+
+            // New privacy action shown in the dashboard.
+            privacyAction: getPrivacyAction(rawCategory),
+
+            confidence: Number(confidence.toFixed(2)),
+
+            evidence:
+              item.evidence ||
+              "Classification predicted by the Python ML model.",
+
+            dataType:
+              item.dataType ||
+              item.data_type ||
+              detectDataType(columnValues),
+
+            sample: maskValue(columnValues[0]),
+            uniqueness,
+            missingPercentage,
+            totalValues: columnValues.length,
+          };
+        });
+
+        if (!cancelled) {
+          setClassification(formattedResults);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(
+            err.message ||
+              "Unable to connect to the Python classification backend."
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    };
+
+    classifyFile();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [dataset?.file, dataset?.fileName]);
+
+  // Share results with App.jsx.
+  useEffect(() => {
+    if (onClassificationChange) {
+      onClassificationChange(classification);
+    }
+  }, [classification, onClassificationChange]);
+
+  const totalColumns = classification.length;
+
+  const sensitiveCount = classification.filter(
+    (item) => item.category === CATEGORIES.SENSITIVE
+  ).length;
+
+  const nonSensitiveCount = classification.filter(
+    (item) => item.category === CATEGORIES.NON_SENSITIVE
+  ).length;
+
+  const reviewCount = classification.filter(
+    (item) => item.category === CATEGORIES.REVIEW
+  ).length;
+
+  const filteredResults = useMemo(() => {
+    return classification.filter((item) => {
+      const matchesSearch =
+        item.column.toLowerCase().includes(search.toLowerCase()) ||
+        item.mlCategory.toLowerCase().includes(search.toLowerCase()) ||
+        item.privacyAction.toLowerCase().includes(search.toLowerCase());
+
+      const matchesFilter =
+        selectedFilter === "All" ||
+        item.category === selectedFilter;
+
+      return matchesSearch && matchesFilter;
+    });
+  }, [classification, search, selectedFilter]);
+
+  if (!dataset || !dataset.headers || dataset.headers.length === 0) {
+    return (
+      <div className="page-container">
+        <div className="page-heading">
+          <div>
+            <h1>Data Classification</h1>
+            <p>
+              Automatically identify sensitive information in your dataset.
+            </p>
+          </div>
+        </div>
+
+        <div className="empty-state">
+          <FileSpreadsheet size={48} />
+          <h3>No dataset available</h3>
+          <p>Upload a CSV or Excel dataset first.</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="page-container">
       <div className="page-heading">
-        <h2>Data Identification & Classification</h2>
-        <p>
-          Upload a medical dataset to identify its columns and classify
-          attributes according to privacy categories.
-        </p>
+        <div>
+          <h1>Data Classification</h1>
+          <p>
+            Automatic identification powered by the Python Machine Learning model.
+          </p>
+        </div>
+
+        <div className="classification-status">
+          <ShieldCheck size={18} />
+          <span>ML Analysis</span>
+        </div>
       </div>
 
-      <div className="classification-upload">
-        <div className="classification-upload-icon">
-          <FileSpreadsheet size={30} />
+      <div className="panel classification-file-info">
+        <div className="file-info-icon">
+          <FileSpreadsheet size={25} />
         </div>
 
         <div>
-          <h3>Upload Medical Dataset</h3>
-          <p>Supported formats: CSV, XLSX and XLS</p>
+          <h3>{dataset.fileName || "Uploaded Dataset"}</h3>
+          <p>
+            {dataset.rows.length} records · {dataset.headers.length} columns
+          </p>
         </div>
 
-        <label className="primary-button classification-upload-button">
-          <Upload size={17} />
-          Choose Dataset
-          <input
-            type="file"
-            accept=".csv,.xlsx,.xls"
-            onChange={handleFile}
-            hidden
-          />
-        </label>
+        {!loading && !error && classification.length > 0 && (
+          <div className="classification-complete">
+            <CheckCircle size={17} />
+            ML analysis completed
+          </div>
+        )}
       </div>
 
-      {loading && <p className="classification-message">Processing dataset...</p>}
-
-      {error && (
-        <div className="classification-error">
-          <AlertTriangle size={18} />
-          {error}
+      {loading && (
+        <div className="panel empty-state">
+          <RefreshCw size={35} className="spin" />
+          <h3>Analysing your dataset...</h3>
+          <p>
+            Sending your file to the Python ML classification engine.
+          </p>
         </div>
       )}
 
-      {fileName && !error && !loading && (
-        <p className="classification-message">
-          <ShieldCheck size={17} />
-          Dataset: {fileName}
-        </p>
+      {error && (
+        <div className="classification-note">
+          <AlertTriangle size={19} />
+          <div>
+            <strong>Classification failed</strong>
+            <p>{error}</p>
+            <p>
+              Make sure the Python backend is running at
+              http://127.0.0.1:8000.
+            </p>
+          </div>
+        </div>
       )}
 
-      {classification.length > 0 && (
+      {!loading && !error && classification.length > 0 && (
         <>
-          <div className="classification-stats">
-            <div className="classification-stat">
-              <Database size={20} />
-              <span>Total Records</span>
-              <strong>{recordCount}</strong>
-            </div>
-
-            <div className="classification-stat">
-              <FileSpreadsheet size={20} />
-              <span>Total Columns</span>
-              <strong>{classification.length}</strong>
-            </div>
-
-            <div className="classification-stat">
-              <ShieldCheck size={20} />
-              <span>Sensitive Columns</span>
-              <strong>{countCategory("Sensitive Attribute")}</strong>
-            </div>
-
-            <div className="classification-stat">
-              <AlertTriangle size={20} />
-              <span>Direct Identifiers</span>
-              <strong>{countCategory("Direct Identifier")}</strong>
-            </div>
-          </div>
-
-          <section className="panel classification-results">
-            <div className="panel-heading">
+          <div className="stats-grid classification-stats">
+            <div className="stat-card">
+              <div className="stat-icon blue">
+                <Database size={22} />
+              </div>
               <div>
-                <h3>Identification Results</h3>
-                <p>Review the identified data types and categories.</p>
+                <p>Total Columns</p>
+                <h2>{totalColumns}</h2>
+                <span>Columns analysed</span>
               </div>
             </div>
 
-            <div className="classification-search">
-              <Search size={17} />
-              <input
-                type="text"
-                placeholder="Search column name..."
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-              />
+            <div className="stat-card">
+              <div className="stat-icon red">
+                <ShieldAlert size={22} />
+              </div>
+              <div>
+                <p>Privacy-relevant Columns</p>
+                <h2>{sensitiveCount}</h2>
+                <span>Fields requiring privacy treatment</span>
+              </div>
             </div>
 
-            <div className="table-wrap">
+            <div className="stat-card">
+              <div className="stat-icon green">
+                <ShieldCheck size={22} />
+              </div>
+              <div>
+                <p>Non-sensitive</p>
+                <h2>{nonSensitiveCount}</h2>
+                <span>Fields classified for retention</span>
+              </div>
+            </div>
+
+            <div className="stat-card">
+              <div className="stat-icon orange">
+                <AlertTriangle size={22} />
+              </div>
+              <div>
+                <p>Needs Review</p>
+                <h2>{reviewCount}</h2>
+                <span>Uncertain classification</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="panel classification-results">
+            <div className="panel-header">
+              <div>
+                <h2>Automatic Classification Results</h2>
+                <p>
+                  ML categories are mapped to appropriate privacy actions.
+                </p>
+              </div>
+
+              <div className="classification-engine-label">
+                <RefreshCw size={15} />
+                Python ML Model
+              </div>
+            </div>
+
+            <div className="classification-controls">
+              <div className="search-box">
+                <Search size={17} />
+                <input
+                  type="text"
+                  placeholder="Search columns or privacy actions..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                />
+              </div>
+
+              <select
+                value={selectedFilter}
+                onChange={(e) => setSelectedFilter(e.target.value)}
+              >
+                <option value="All">All Results</option>
+                <option value={CATEGORIES.SENSITIVE}>
+                  Privacy-relevant
+                </option>
+                <option value={CATEGORIES.NON_SENSITIVE}>
+                  Non-sensitive
+                </option>
+                <option value={CATEGORIES.REVIEW}>
+                  Needs Review
+                </option>
+              </select>
+            </div>
+
+            <div className="table-container">
               <table>
                 <thead>
                   <tr>
                     <th>Column Name</th>
-                    <th>Identified Type</th>
+                    <th>Data Type</th>
                     <th>Sample Value</th>
-                    <th>Classification</th>
+                    <th>Privacy Action</th>
+                    <th>ML Category</th>
+                    <th>Confidence</th>
                   </tr>
                 </thead>
 
                 <tbody>
-                  {filtered.map((item) => (
-                    <tr key={item.column}>
-                      <td className="patient-id">{item.column}</td>
-                      <td>{item.dataType}</td>
-                      <td className="sample-value">
-                        {String(item.sample).slice(0, 35)}
-                      </td>
+                  {filteredResults.map((item, index) => (
+                    <tr key={`${item.column}-${index}`}>
                       <td>
-                        <select
-                          className="category-select"
-                          value={item.category}
-                          onChange={(event) =>
-                            updateCategory(item.column, event.target.value)
-                          }
+                        <strong>{item.column}</strong>
+                      </td>
+
+                      <td>{item.dataType}</td>
+
+                      <td>
+                        <span className="masked-value">
+                          <Eye size={13} />
+                          {item.sample}
+                        </span>
+                      </td>
+
+                      <td>
+                        <span
+                          className={`risk-badge ${getActionClass(
+                            item.privacyAction
+                          )}`}
                         >
-                          {categories.map((category) => (
-                            <option key={category} value={category}>
-                              {category}
-                            </option>
-                          ))}
-                        </select>
+                          {item.privacyAction}
+                        </span>
+                      </td>
+
+                      <td>{item.mlCategory}</td>
+
+                      <td>
+                        <div className="confidence-cell">
+                          <strong>{item.confidence}%</strong>
+                          <div className="confidence-bar">
+                            <div
+                              className="confidence-fill"
+                              style={{
+                                width: `${Math.max(
+                                  0,
+                                  Math.min(100, item.confidence)
+                                )}%`,
+                              }}
+                            />
+                          </div>
+                        </div>
                       </td>
                     </tr>
                   ))}
 
-                  {filtered.length === 0 && (
+                  {filteredResults.length === 0 && (
                     <tr>
-                      <td colSpan="4" className="empty-state">
+                      <td colSpan="6" className="no-results">
                         No matching columns found.
                       </td>
                     </tr>
@@ -337,25 +596,64 @@ export default function Classification() {
                 </tbody>
               </table>
             </div>
-          </section>
+
+            <div className="classification-evidence">
+              <div className="evidence-heading">
+                <Info size={18} />
+                <h3>How the ML model classifies data</h3>
+              </div>
+
+              <div className="evidence-grid">
+                <div className="evidence-item">
+                  <ShieldAlert size={18} />
+                  <div>
+                    <strong>Column-name analysis</strong>
+                    <p>
+                      Analyses column names to identify possible personal
+                      and medical information.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="evidence-item">
+                  <Search size={18} />
+                  <div>
+                    <strong>Pattern recognition</strong>
+                    <p>
+                      Uses word and character patterns learned during model
+                      training.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="evidence-item">
+                  <Database size={18} />
+                  <div>
+                    <strong>Machine Learning prediction</strong>
+                    <p>
+                      Uses the trained classification model to predict
+                      the category of each column.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
 
           <div className="classification-note">
-            <AlertTriangle size={18} />
-            <p>
-              These results are generated using rule-based column-name and
-              sample-value checks. They are preliminary suggestions, not
-              guaranteed privacy classifications. Review them manually.
-            </p>
+            <AlertTriangle size={19} />
+            <div>
+              <strong>Classification notice</strong>
+              <p>
+                These results are generated by the trained Python ML model.
+                Confidence scores are model scores, not calibrated probabilities.
+                Unknown or uncertain categories should be reviewed by a user.
+                Classification alone does not guarantee medical-data
+                de-identification.
+              </p>
+            </div>
           </div>
         </>
-      )}
-
-      {!classification.length && !loading && !error && (
-        <div className="classification-empty">
-          <Database size={35} />
-          <h3>No dataset uploaded yet</h3>
-          <p>Upload a CSV or Excel file to begin identification.</p>
-        </div>
       )}
     </div>
   );
