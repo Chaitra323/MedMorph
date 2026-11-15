@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import "./index.css";
 
-const API_URL = "http://127.0.0.1:8000/classify";
+const API_URL = "https://medmorph.onrender.com/classify";
 
 const CATEGORIES = {
   SENSITIVE: "Sensitive",
